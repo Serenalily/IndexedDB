@@ -1,0 +1,556 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="ie=edge">
+    <title>indexedDB</title>
+
+    <style>
+        .table-title, #content {
+            font-size: 0;
+        }
+        .table-title > span{
+            font-size: 16px;
+            display: inline-block;
+            width: 150px;
+            text-align: center;
+            margin: 0 1px;
+            background: #eee;
+
+        }
+        #content > div > span {
+            font-size: 16px;
+            display: inline-block;
+            width: 148px;
+            border: 1px solid black;
+            margin: 1px 1px;
+            text-align: center;
+            line-height: 24px;
+        }
+
+        #content >  div > span:last-child > button{
+            font-size: 12px;
+            display: inline-block;
+            vertical-align: text-top;
+        }
+
+        #content > div > span:nth-of-type(2) > input[type = 'text'] {
+            width: 100%;
+            height: 100%;
+            text-align: center;
+            font-size: 16px;
+            border: none;
+        }
+
+        #content > p {
+            margin: 0;
+            padding: 0;
+            font-size: 16px;
+            margin-left: 272px;
+        }
+
+    </style>
+
+
+
+    <script>
+        var db = null;
+        var arrayKey = [];
+        // var openRequest, lastCursor;
+        var openRequest;
+        var lastCursor = null;
+        var indexedDB = window.indexedDB || window.webkitIndexedDB || window.mozIndexedDB || window.msIndexedDB;
+        var dbName = 'person';
+        var tableName = 'testTable';
+        function init(){
+            openRequest = indexedDB.open(dbName);
+            //handle setup
+
+            //数据库更新事件  从无到有或版本号升级时会触发
+            openRequest.onupgradeneeded = function(event){
+                console.log('running onupgradeneeded');
+                var thisDb = event.target.result;
+                console.log(thisDb.version, '数据库版本');
+                if( !thisDb.objectStoreNames.contains(tableName) ){ //判断表是否存在
+                    console.log('I need to create the objectstore');
+                    //指定主键为 id, 使用自增
+                    var objectstore = thisDb.createObjectStore(tableName, {keyPath: 'id', autoIncrement: true});
+                    //新建表索引
+                    //上面代码中，IDBObject.createIndex()的三个参数分别为索引名称、索引所在的属性、配置对象（说明该属性是否包含重复的值）。
+                    objectstore.createIndex('name', 'name', {unique: true});
+                    objectstore.createIndex('phone','phone', {unique: false});
+
+                }
+            }
+
+            //数据库打开成功(如果数据库已经纯在)
+            openRequest.onsuccess = function(event){
+                db = event.target.result;
+                console.log(db.version, '版本号');
+                db.onerror = function(event){
+                    //Generic error handler for all errors targeted at this database's
+                    //针对此数据库的所有错误的通用错误处理程序
+                    alert("Database error:" + event.target.errorCode);
+                    console.dir(event.target);
+                }
+                //判断表是否存在
+                if( db.objectStoreNames.contains(tableName) ){
+                    console.log('contains table' + tableName);
+                }
+
+                //事务
+                /*
+                 写入数据需要新建一个事务。新建时必须指定表格名称和操作模式（"只读"或"读写"）。
+                 新建事务以后，通过IDBTransaction.objectStore(name)方法，拿到 IDBObjectStore 对象，再通过表格对象的add()方法，向表格写入一条记录。
+                 写入操作是一个异步操作，通过监听连接对象的success事件和error事件，了解是否写入成功。
+                 */
+                //对表名为 'testTable' 进行读写
+                //得到操作 'testTable' 表的事务对象
+                var transaction = db.transaction([tableName], 'readwrite');  //可读可写事务
+
+                //事务操作完成
+                transaction.oncomplete = function(event){
+                    console.log("All done 全部做好了");
+                }
+                // var oContent = document.querySelector('#content');
+                //事务操作出错
+                transaction.onerror = function(event){
+                    //Don't forget to handle errors!
+                    //不要忘记处理错误!
+                    console.dir(event);
+                }
+                //事务操作成功
+                transaction.onsuccess = function(event){
+                    console.log('All Success');
+                }
+
+
+                //遍历 表中的数据
+
+                //从事务对象里得到 表里的objectStore对象
+                var objectStore = transaction.objectStore(tableName);
+
+
+                //新建指针(游标)对象的openCursor()方法是一个异步操作，所以要监听success事件。
+                objectStore.openCursor().onsuccess = function(event){//使用游标遍历
+                    var cursor = event.target.result;
+                    console.log(cursor, '游标');
+                    if(cursor){
+                        console.log(cursor.key);
+                        console.dir(cursor.value);
+
+
+                        render( {key: cursor.key, name: cursor.value['name'], phone: cursor.value['phone'], address: cursor.value['address']} )
+                        //flag++;
+                        lastCursor = cursor.key;  //每次遍历把当前key 赋值给 lastCursor ,最后遍历完lastCursor的值就为最后一条数据的key
+                        console.log(lastCursor, '最后的值');
+                        /*
+                         cursor.continue(key);
+                         定位光标的键。key 可选
+                         IDBCursor接口的continue()方法将光标沿其方向移动到下一个位置，移动到其键与可选键参数匹配的项。如果没有指定键，则根据光标的方向将光标移动到紧接的下一个位置。
+                         */
+
+                        cursor.continue();
+
+                    } else{
+                        // lastCursor = null;
+                        console.log('没有更多数据了！');
+                    }
+                }
+
+                //如果游标遍历出现错误
+                objectStore.openCursor().onerror = function(event){
+                    console.dir(event);
+                }
+
+
+
+
+
+            }
+
+            openRequest.onerror = function(event){
+                console.log(event, '数据库打开错误')
+            }
+
+            //add new record  添加一条新的记录
+
+            document.querySelector('#add').addEventListener( 'click', function(){
+                var name = document.querySelector('#name').value;
+                var phone = document.querySelector('#phone').value;
+                var address = document.querySelector('#address').value;
+
+                var person={ 'name': name, 'phone': phone, 'address': address };
+
+                /*
+                 写入数据需要新建一个事务。新建时必须指定表格名称和操作模式（"只读"或"读写"）。新建事务以后，通过IDBTransaction.objectStore(name)方法，拿到 IDBObjectStore 对象，
+                 再通过表格对象的add()方法，向表格写入一条记录。
+                 写入操作是一个异步操作，通过监听连接对象的success事件和error事件，了解是否写入成功。
+                 */
+
+
+
+                //通过事务忘数据库 表中添加数据
+                var transaction = db.transaction([tableName], 'readwrite') //得到表为 testTable 的可读可写事务。
+
+                transaction.oncomplete = function(event){
+                    console.log('transaction complete');
+                }
+
+                transaction.onerror = function(event){
+                    console.dir(event);
+                }
+
+                transaction.onsuccess = function(event){
+                    console.log('数据写入成功');
+                }
+
+
+                //从事务中拿到 表对象  objectStore
+                var objectStore = transaction.objectStore(tableName);
+                //添加一条人的数据
+                objectStore.add(person);
+
+                //通过游标遍历
+                objectStore.openCursor().onsuccess = function(event){
+                    cursor = event.target.result;
+                    console.log(cursor, '游标添加完数据');
+                    var key;
+                    console.log(lastCursor, '判断前');
+                    if(lastCursor === null){ //表中没有数据
+                        console.log(lastCursor, '没有数据lastCursor');
+                        key = cursor.key;  //DBCursor.key：返回当前记录的主键。
+                        lastCursor = key; //IDBCursor.value：返回当前记录的数据值。
+                    }else{
+                        key = ++lastCursor;
+                        console.log(lastCursor,'有数据的lastCursor');
+                    }
+
+                    console.log(lastCursor, key, '添加是的key');
+                    render( {key: key, name: name, phone: phone, address: address} );
+                    console.log("success add new record! key" + key); //新的记录添加成功
+                    console.dir( person );
+
+                }
+
+
+
+
+
+
+            },false );
+
+            //删除按钮事件
+            document.querySelector('#content').addEventListener('click', function(ev){
+                var curElement = ev.srcElement;
+
+                // if(curElement.nodeName.toLocaleLowerCase() === 'button'){
+                if(curElement.className === 'delBtn'){
+                    //do something
+                    // var id = curElement.parentNode.parentNode.dataset.id;
+                    var id = curElement.parentNode.parentNode.getAttribute('id');
+                    console.log(id);
+                    deleteRecord(id);
+                }
+
+                // console.dir(curElement);
+
+
+            }, false);
+
+            //修改按钮事件
+            document.querySelector('#content').addEventListener('click', function(ev){
+                var curElement = ev.srcElement;
+                if(curElement.className === 'amendBtn'){
+                    var id = curElement.parentNode.parentNode.getAttribute('id');
+                    // console.log(id);
+                    updateRecord(id);
+                }
+            }, false)
+
+
+            //渲染视图
+            function render(opt){
+                /*
+
+                 <div>
+                 <span>test</span>
+                 <span>111</span>
+                 <span>111</span>
+                 <span>
+                 <button>删除</button>
+                 </span>
+                 </div>
+
+                 */
+                console.log(opt);
+                var oContent = document.querySelector('#content');
+                var oDiv = document.createElement('div');
+                // oDiv.setAttribute('data-id', opt.key);
+                oDiv.setAttribute('id', opt.key);
+                oDiv.innerHTML = `<span>${opt.name}</span>
+                                <span><input type="text" value="${opt.phone}"></span>
+                                <span>${opt.address}</span>
+                                <span>
+                                    <button class="delBtn">删除</button>
+                                    <button class="amendBtn">修改</button>
+                                </span>`;
+
+                //删除第一个p
+                // console.dir(oContent);
+                if(oContent.firstElementChild && oContent.firstElementChild.nodeName === 'P') oContent.removeChild(oContent.firstElementChild);
+                oContent.appendChild(oDiv);
+
+            }
+
+            //删除制定id 数据
+            function deleteRecord(id){
+                //同样也还是通过事务操作
+                var transaction = db.transaction([tableName], 'readwrite');
+                transaction.oncomplete = function(event){
+                    console.log('transaction complete!');
+                }
+
+                transaction.onerror = function(event){
+                    console.dir(event);
+                }
+                //得到objectStore对象
+                var objectStore = transaction.objectStore(tableName);
+                var removeKey = parseInt(id);
+
+                // objectStore.get()方法用于读取数据，参数是主键的值。
+                var getRequest = objectStore.get(removeKey);
+                getRequest.onsuccess = function(event){
+                    var result = getRequest.result;
+                    console.dir(result);
+                }
+
+                //删除数据
+                //IDBObjectStore.delete()方法用于删除记录。
+                var request = objectStore.delete(removeKey);
+
+                request.onsuccess = function(event){
+                    console.log('success delete record!');
+                }
+                request.onerror = function(event){
+                    console.log('Error delete record', event);
+                }
+
+                //隐藏已删除的元素
+                document.getElementById(removeKey).style.display = 'none';
+
+            }
+
+            //更新数据 通过id
+            function updateRecord(id){
+
+                var transaction = db.transaction([tableName], 'readwrite');
+                transaction.oncomplete = function(event){
+                    console.log('transaction complete!');
+                }
+
+                transaction.onerror = function(event){
+                    console.log('数据更新成功');
+                    console.dir(event);
+                }
+
+                transaction.onsuccess = function(event){
+                    console.log('数据更新成功');
+                }
+
+                //得到objectStore对象
+                var objectStore = transaction.objectStore(tableName);
+
+                var updateKey = parseInt(id);
+                var curPhone = document.getElementById(updateKey).children[1].children[0].value;
+                // var oldData;
+                //得到这条数据
+                //objectStore.get()方法用于读取数据，参数是主键的值。
+                var request =  objectStore.get(updateKey);
+                request.onerror = function(event){
+                    console.log('事务失败');
+                }
+
+                request.onsuccess = function(event){
+                    var oldData = request.result;
+                    objectStore.put({id: updateKey, name: oldData.name, phone: curPhone, address: oldData.address});
+                }
+
+                // 更新数据要使用IDBObject.put(item, key)方法
+                //该方法接受两个参数，第一个参数为新数据，第二个参数为主键，该参数可选，且只在自动递增时才有必要提供，因为那时主键不包含在数据值里面。
+
+                // console.log({key: updateKey, phone: curPhone});
+                // objectStore.put({id: updateKey, name: oldData.name, phone: curPhone, address: oldData.address});
+
+
+            }
+
+
+            //删除数据库DB
+            /*
+             indexedDB.deleteDatabase()方法用于删除一个数据库，参数为数据库的名字。它会立刻返回一个IDBOpenDBRequest对象，
+             然后对数据库执行异步删除。删除操作的结果会通过事件通知，IDBOpenDBRequest对象可以监听以下事件。
+             */
+
+            document.querySelector('#deleteDB').addEventListener('click', function(){
+                var deleteDB = indexedDB.deleteDatabase(dbName);
+
+
+                var content = document.querySelector('#content');
+
+                while(content.firstChild){ //如果表格中上有一条 数据，就删除
+                    content.removeChild(content.firstChild);
+                }
+
+                deleteDB.onsuccess = function(event){
+                    console.log('success delete database!');
+                }
+
+                deleteDB.onerror = function(event){
+                    console.dir(event.target);
+                }
+
+
+            }, false);
+
+            //查询
+            document.querySelector('#seletBtn').addEventListener('click', function(){
+                var curName = document.getElementById('selname').value;
+                var transaction = db.transaction([tableName], 'readwrite');
+                transaction.oncomplete = function(event){
+                    console.log('transaction complete');
+                }
+                transaction.onerror = function(event){
+                    console.dir(event);
+                }
+
+                //得到objectStore对戏
+                var objectStore = transaction.objectStore(tableName);
+
+                /*
+                 IDBKeyRange 实例对象生成以后，将它作为参数输入 IDBObjectStore 或 IDBIndex 对象的openCursor()方法，就可以在所设定的范围内读取数据。
+
+                 IDBKeyRange 可以只包含一个值，也可以指定上限和下限。它有四个静态方法，用来指定主键的范围。
+
+                 IDBKeyRange.lowerBound()：指定下限。
+                 IDBKeyRange.upperBound()：指定上限。
+                 IDBKeyRange.bound()：同时指定上下限。
+                 IDBKeyRange.only()：指定只包含一个值。
+
+                 //详见 https://wangdoc.com/javascript/bom/indexeddb.html#indexeddb-%E5%AF%B9%E8%B1%A1
+                 */
+
+                var boundKeyRange = IDBKeyRange.only(curName); //生成一个表示范围的Range对象
+
+
+                /*
+
+                 使用索引
+                 索引的意义在于，可以让你搜索任意字段，也就是说从任意字段拿到数据记录。如果不建立索引，默认只能搜索主键（即从主键取值）。
+
+                 假定新建表格的时候，对name字段建立了索引。
+
+                 objectStore.createIndex('name', 'name', { unique: false });
+                 现在，就可以从name找到对应的数据记录了。
+
+                 */
+                //之所以通过 游标遍历拿到数据 而不是直接 通过 objectStore.get(key)  得到数据， 是因为name 有可能是重复的。
+
+                document.getElementById('content').innerHTML = ''; //清空现在表格中的数据
+                objectStore.index('name').openCursor(boundKeyRange).onsuccess = function(event){  //拿到所有name为 curName 的数据，进行遍历
+                    var cursor = event.target.result;
+                    if(!cursor){
+                        return;
+                    }
+
+                    var rowData = cursor.value;
+
+                    console.log(rowData);
+                    // document.getElementById('content').innerHTML = '';
+                    render( {key: cursor.value.id, name: cursor.value['name'], phone: cursor.value['phone'], address: cursor.value['address']} );
+                    //开始下一条遍历
+                    cursor.continue();
+
+                }
+
+
+            }, false);
+
+            //断开数据库
+            document.querySelector('#closeDB').addEventListener('click', function(){
+                db.close();
+            }, false);
+
+
+
+
+        }
+        //dom 加载完成执行init 函数
+        window.addEventListener( "DOMContentLoaded", init, false);
+
+    </script>
+</head>
+<body>
+<div>
+        <span>
+            <label>姓名:</label>
+            <input type="text" id="name">
+        </span>
+
+
+        <span>
+            <label>电话:</label>
+            <input type="text" id="phone">
+        </span>
+
+
+        <span>
+            <label>地址:</label>
+            <input type="text" id="address">
+        </span>
+
+    <button id="add">添加</button>
+    <button id="deleteDB">删除数据库</button>
+    <button id="closeDB">关闭数据库</button>
+
+</div>
+<article>
+        <span>
+            <label>姓名:</label>
+            <input type="text" id="selname">
+        </span>
+
+    <button id="seletBtn">查询</button>
+
+</article>
+
+<section>
+    <div class="table-title">
+        <span>姓名</span>
+        <span>电话</span>
+        <span>地址</span>
+        <span>操作</span>
+    </div>
+</section>
+<div id="content">
+    <p>暂无数据！！！</p>
+
+    <!--
+            <div>
+                <span>test</span>
+                <span><input type="text" value="111"></span>
+                <span>111</span>
+                <span>
+                    <button>删除</button>
+                    <button>修改</button>
+                </span>
+            </div>
+     -->
+
+
+
+</div>
+<p style="color: red">注： 表格中的电话是可点击修改的。</p>
+</body>
+</html>
